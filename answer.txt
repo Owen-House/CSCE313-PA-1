@@ -1,5 +1,13 @@
 The time taken to transfer a 100MB file:
-real time: 30.657s                                                                                                      user time: 0.492s                                                                                                       system time: 38.093s                                                                                                                                                                                                                            The main bottleneck in my code is the number of read and write procedures passed between the server and client.                                                                                                                                 More data points of different sized files and how long they took to transfer files of various sizes
+real time: 30.657s
+user time: 0.492s
+system time: 38.093s                                 
+
+
+The main bottleneck in my code is the number of read and write procedures passed between the server and client.
+
+More data points of different sized files and how long they took to transfer files of various sizes
+
 MegaBytes     real time (seconds)
 0.0001        0.187
 0.001         0.257
