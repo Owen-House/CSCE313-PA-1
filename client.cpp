@@ -24,7 +24,7 @@ int main (int argc, char *argv[]) {
 	int p = 1;
 	double t = 0.0;
 	int e = 1;
-	bool c = false;
+	bool new_channel = false;
 	
 	string filename = "";
 	while ((opt = getopt(argc, argv, "p:t:e:f:c")) != -1) {
@@ -42,7 +42,7 @@ int main (int argc, char *argv[]) {
 				filename = optarg;
 				break;
 			case 'c':
-				c = true;
+				new_channel = true;
 				break;
 		}
 	}
@@ -62,20 +62,21 @@ int main (int argc, char *argv[]) {
 		exit(0);
 	}
 	else { // in parent process
-		FIFORequestChannel chan("control", FIFORequestChannel::CLIENT_SIDE);
-		
-		// part 4.4
-		FIFORequestChannel* chan_ptr;
-		
-		MESSAGE_TYPE new_chan_msg = NEWCHANNEL_MSG;
-		chan.cwrite(&new_chan_msg, sizeof(MESSAGE_TYPE));
-		FIFORequestChannel chan2("data1_", FIFORequestChannel::CLIENT_SIDE);
-		if (c) {
-			chan_ptr = &chan2;
+		FIFORequestChannel* control_chan = new FIFORequestChannel("control", FIFORequestChannel::CLIENT_SIDE);
+		FIFORequestChannel* active_chan = control_chan;
+
+		if (new_channel) {
+			MESSAGE_TYPE m = NEWCHANNEL_MSG;
+			control_chan->cwrite(&m, sizeof(MESSAGE_TYPE));
+
+			char new_channel_name[100];
+			control_chan->cread(new_channel_name, sizeof(new_channel_name));
+
+			active_chan = new FIFORequestChannel(new_channel_name, FIFORequestChannel::CLIENT_SIDE);
+
+			cout << "NEW CHANNEL CREATED" << endl;
 		}
-		else {
-			chan_ptr = &chan;
-		}
+
 
 		if (filename.empty())
 		{
@@ -84,10 +85,10 @@ int main (int argc, char *argv[]) {
 			datamsg x(p, t, e);
 			
 			memcpy(buf, &x, sizeof(datamsg));
-			chan_ptr->cwrite(buf, sizeof(datamsg)); // question
+			active_chan->cwrite(buf, sizeof(datamsg)); // question
 
 			double reply;
-			chan_ptr->cread(&reply, sizeof(double)); //answer
+			active_chan->cread(&reply, sizeof(double)); //answer
 			cout << "For person " << p << ", at time " << t << ", the value of ecg " << e << " is " << reply << endl;
 			
 			string output_path = "received/x1.csv";
@@ -101,17 +102,17 @@ int main (int argc, char *argv[]) {
 				datamsg dmsg1(p, i * 0.004, 1); // get ecg_1 value at t = i * 4 ms
 
 				memcpy(buf1, &dmsg1, sizeof(datamsg));
-				chan_ptr->cwrite(buf1, sizeof(datamsg)); // question
+				active_chan->cwrite(buf1, sizeof(datamsg)); // question
 				double reply1;
-				chan_ptr->cread(&reply1, sizeof(double)); //answer
+				active_chan->cread(&reply1, sizeof(double)); //answer
 				
 				char buf2[MAX_MESSAGE];
 				datamsg dmsg2(p, i * 0.004, 2); // get ecg_2 value at t = i * 4 ms
 
 				memcpy(buf2, &dmsg2, sizeof(datamsg));
-				chan_ptr->cwrite(buf2, sizeof(datamsg)); // question
+				active_chan->cwrite(buf2, sizeof(datamsg)); // question
 				double reply2;
-				chan_ptr->cread(&reply2, sizeof(double)); //answer
+				active_chan->cread(&reply2, sizeof(double)); //answer
 
 				output_file << i * 0.004 << ", " << reply1 << ", " << reply2 << "\n";
 			}
@@ -127,10 +128,10 @@ int main (int argc, char *argv[]) {
 			char* buf2 = new char[len];
 			memcpy(buf2, &fm, sizeof(filemsg));
 			strcpy(buf2 + sizeof(filemsg), fname.c_str());
-			chan_ptr->cwrite(buf2, len);  // I want the file length; (request to server)
+			active_chan->cwrite(buf2, len);  // I want the file length; (request to server)
 
 			__int64_t file_size;
-			chan_ptr->cread(&file_size, sizeof(__int64_t)); // get the file size from the server
+			active_chan->cread(&file_size, sizeof(__int64_t)); // get the file size from the server
 			
 			delete[] buf2;
 			
@@ -161,11 +162,11 @@ int main (int argc, char *argv[]) {
 				strcpy(buf + sizeof(filemsg), fname.c_str());
 
 				// send request to server
-				chan_ptr->cwrite(buf, mlen);
+				active_chan->cwrite(buf, mlen);
 
 				// get reply
 				char* reply_buf = new char[bytes_to_read]; // reply buffer
-				chan_ptr->cread(reply_buf, bytes_to_read);
+				active_chan->cread(reply_buf, bytes_to_read);
 				
 				// write to output file
 				fwrite(reply_buf, 1, bytes_to_read, out_file);
@@ -178,12 +179,19 @@ int main (int argc, char *argv[]) {
 			}
 
 			fclose(out_file);
-		}
-
+	}
 		// closing the channel    
 		MESSAGE_TYPE m = QUIT_MSG;
-		chan2.cwrite(&m, sizeof(MESSAGE_TYPE));
-		chan.cwrite(&m, sizeof(MESSAGE_TYPE));
+		active_chan->cwrite(&m, sizeof(MESSAGE_TYPE));
+
+		if (new_channel) {
+			delete active_chan;
+			m = QUIT_MSG;
+			control_chan->cwrite(&m, sizeof(MESSAGE_TYPE));
+		}
+
+		delete control_chan;
+
 		wait(&status);
 	}
 }
